@@ -1,0 +1,19 @@
+# Google Takeout exports (personal data — never commit)
+Takeout/
+takeout-*.zip
+takeout-*.tgz
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# Environment
+.env
+
+# Claude Code local settings
+.claude/settings.local.json
