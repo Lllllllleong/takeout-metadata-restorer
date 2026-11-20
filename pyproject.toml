@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "takeout-metadata-restorer"
+version = "0.1.0"
+description = "Restore dates, GPS and other metadata from Google Takeout JSON sidecars back into photos and videos"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "tzdata",  # zoneinfo has no system time zone database on Windows
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+takeout-restore = "takeout_restore.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
