@@ -6,8 +6,11 @@ Takeout's naming rules, as observed:
   (`.supplemental-metada.json`, `.supplemental.json`, ...), or legacy `IMG.jpg.json`.
 - The whole stem is cut to 46 characters, which can eat the media extension.
 - Duplicate uploads get a counter: `IMG(1).jpg` <-> `IMG.jpg.supplemental-metadata(1).json`.
+- When a counter would collide with a real filename (`IMG(1).jpg` was uploaded as
+  such), the media gets the next free counter but the sidecar keeps the original.
 - The sidecar's `title` is the uploaded filename, which doesn't always follow the
   counters, so it's only a last resort.
+- Every name, media or sidecar, is cut to 51 characters.
 """
 import os
 import re
@@ -18,15 +21,18 @@ from takeout_restore.inventory import MediaFile, Sidecar
 SUFFIX = ".supplemental-metadata"
 COUNTER = re.compile(r"^(.*)\((\d+)\)$")
 EDITED = re.compile(r"-edited$", re.IGNORECASE)
-VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".3gp"}
+# Anything else without a sidecar can be a Live Photo / Motion Photo video part,
+# including files with no extension and iOS `.fullsizerender` videos.
+STILL_EXTS = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".gif", ".webp", ".dng"}
 STILL_PREFERENCE = (".heic", ".heif", ".jpg", ".jpeg")
+MAX_NAME = 51
 
 
 @dataclass
 class Match:
     media: MediaFile
     sidecar: Sidecar | None
-    # How the sidecar was found: exact, prefix, title, edited, live-photo, or none.
+    # How the sidecar was found: exact, prefix, title, renumbered, edited, live-photo, or none.
     via: str
     # The file whose sidecar this one borrows (original of an edit, still of a Live Photo).
     partner: MediaFile | None = None
@@ -88,6 +94,12 @@ def match_folder(folder):
         else:
             unmatched.append(sc)
 
+    for sc in list(unmatched):
+        target = _renumbered_target(folder, claimed, *keys[sc.name])
+        if target:
+            claimed[target] = (sc, "renumbered")
+            unmatched.remove(sc)
+
     matches = []
     by_stem = {}  # lowercase stem without extension -> sidecar'd media, for partner lookups
     for name, (sc, via) in claimed.items():
@@ -125,6 +137,17 @@ def _title_target(folder, claimed, sc, n):
     return target if target in folder.media and target not in claimed else None
 
 
+def _renumbered_target(folder, claimed, stem, n):
+    if n is None:
+        return None
+    candidates = []
+    for name in folder.media:
+        core, mn = media_key(name)
+        if name not in claimed and mn is not None and core.startswith(stem):
+            candidates.append(name)
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _borrow(media, by_stem, claimed):
     stem, ext = os.path.splitext(media.name)
     if EDITED.search(stem):
@@ -132,12 +155,20 @@ def _borrow(media, by_stem, claimed):
         if originals:
             orig = _prefer(originals, ext.lower())
             return Match(media, claimed[orig.name][0], "edited", orig)
-    if ext.lower() in VIDEO_EXTS:
-        stills = [m for m in by_stem.get(stem.lower(), []) if os.path.splitext(m.name)[1].lower() not in VIDEO_EXTS]
+    if ext.lower() not in STILL_EXTS:
+        stills = _stills(by_stem.get(stem.lower(), []))
+        if not stills and len(media.name) >= MAX_NAME:  # truncated: the still's stem is longer
+            longer = [s for s in by_stem if s.startswith(stem.lower())]
+            if len(longer) == 1:
+                stills = _stills(by_stem[longer[0]])
         if stills:
             still = _prefer(stills)
             return Match(media, claimed[still.name][0], "live-photo", still)
     return Match(media, None, "none")
+
+
+def _stills(files):
+    return [m for m in files if os.path.splitext(m.name)[1].lower() in STILL_EXTS]
 
 
 def _prefer(files, ext=None):

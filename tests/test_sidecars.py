@@ -129,6 +129,47 @@ def test_live_photo_prefers_heic_still():
     assert video.partner.name == "FullSizeRender.heic"
 
 
+def test_renumbered_media_when_counter_collides_with_real_name():
+    # A file really named VID(1).mp4 existed, so the second VID.mp4 became VID(2).mp4
+    # while its sidecar kept counter (1).
+    got, unmatched = by_media(folder(
+        ["VID.mp4", "VID(1).mp4", "VID(2).mp4"],
+        {
+            "VID.mp4.supplemental-metadata.json": "VID.mp4",
+            "VID(1).mp4.supplemental-metadata.json": "VID(1).mp4",
+            "VID.mp4.supplemental-metadata(1).json": "VID.mp4",
+        },
+    ))
+    assert got["VID(1).mp4"] == ("VID(1).mp4.supplemental-metadata.json", "exact")
+    assert got["VID(2).mp4"] == ("VID.mp4.supplemental-metadata(1).json", "renumbered")
+    assert not unmatched
+
+
+def test_motion_part_without_extension_pairs_with_still():
+    matches, _ = match_folder(folder(
+        ["MVIMG_20190101_120000.jpg", "MVIMG_20190101_120000"],
+        {"MVIMG_20190101_120000.jpg.supplemental-metadata.json": "MVIMG_20190101_120000.jpg"},
+    ))
+    part = next(m for m in matches if m.media.name == "MVIMG_20190101_120000")
+    assert (part.via, part.partner.name) == ("live-photo", "MVIMG_20190101_120000.jpg")
+
+
+def test_truncated_motion_part_pairs_by_prefix():
+    still = "12345678901__ABCDEF01-2345-6789-ABCD-0123456789.HEIC"
+    video = "12345678901__ABCDEF01-2345-6789-ABCD.fullsizerender"  # 51 chars
+    matches, _ = match_folder(folder([still, video], {still[:46] + ".json": still}))
+    part = next(m for m in matches if m.media.name == video)
+    assert (part.via, part.partner.name) == ("live-photo", still)
+
+
+def test_short_names_never_pair_by_prefix():
+    matches, _ = match_folder(folder(
+        ["IMG_10.HEIC", "IMG_1.MP4"],
+        {"IMG_10.HEIC.supplemental-metadata.json": "IMG_10.HEIC"},
+    ))
+    assert next(m for m in matches if m.media.name == "IMG_1.MP4").via == "none"
+
+
 def test_unpaired_and_unmatched():
     got, unmatched = by_media(folder(["random.mov"], {"missing.jpg.supplemental-metadata.json": "missing.jpg"}))
     assert got["random.mov"] == (None, "none")
